@@ -1,33 +1,42 @@
-import os
+from flask import Flask, request, Response
 import requests
-from flask import Flask, request, jsonify
 
 app = Flask(__name__)
+
+# Binance වල ප්‍රධාන API ලිපිනයන්
+BINANCE_API_BASE = "https://api.binance.com"
+BINANCE_FUTURES_BASE = "https://fbinance.com" # හෝ fapi.binance.com
+
+@app.route('/api/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def proxy_api(path):
+    url = f"{BINANCE_API_BASE}/api/{path}"
+    return forward_request(url)
+
+@app.route('/fapi/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def proxy_fapi(path):
+    url = f"https://fapi.binance.com/fapi/{path}"
+    return forward_request(url)
+
+def forward_request(url):
+    # බ්‍රව්සරයෙන් හෝ බොට්ගෙන් එන headers සහ data Binance එකට හරවා යැවීම
+    resp = requests.request(
+        method=request.method,
+        url=url,
+        headers={key: value for (key, value) in request.headers if key != 'Host'},
+        params=request.args,
+        data=request.get_data(),
+        cookies=request.cookies,
+        allow_redirects=False
+    )
+    
+    excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+    headers = [(name, value) for (name, value) in resp.raw.headers.items() if name.lower() not in excluded_headers]
+    
+    return Response(resp.content, resp.status_code, headers)
 
 @app.route('/')
 def home():
     return "Binance Proxy is Running!"
 
-@app.route('/proxy', methods=['POST'])
-def proxy():
-    try:
-        data = request.json
-        url = data.get('url')
-        headers = data.get('headers', {})
-        params = data.get('params', {})
-        payload = data.get('payload', {})
-        method = data.get('method', 'GET')
-        
-        response = requests.request(
-            method=method,
-            url=url,
-            headers=headers,
-            params=params,
-            json=payload if payload else None
-        )
-        return jsonify(response.json()), response.status_code
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run()
